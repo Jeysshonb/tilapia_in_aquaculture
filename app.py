@@ -2122,75 +2122,69 @@ with tab7:
 
     st.markdown("---")
 
-    # Técnicas de IA utilizadas
-    st.subheader("🤖 Técnicas de Inteligencia Artificial")
+    # Técnicas de IA utilizadas - VERSIÓN SIMPLIFICADA
+    st.subheader("🤖 Modelo de Inteligencia Artificial Implementado")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("""
-        ### 📊 Regresión Lineal
-
-        **Descripción:**
-        La regresión lineal es un algoritmo de aprendizaje supervisado que modela
-        la relación entre variables predictoras y una variable objetivo mediante
-        una función lineal.
-
-        **Ecuación matemática:**
-        ```
-        y = β₀ + β₁x₁ + β₂x₂ + β₃x₃ + ε
-        ```
-
-        Donde:
-        - y = Variable objetivo (pH o Temperatura)
-        - x₁ = Días transcurridos
-        - x₂ = Hora del día
-        - x₃ = Número de tanque
-        - β = Coeficientes
-        - ε = Error
-
-        **Ventajas:**
-        - ✅ Interpretable y explicable
-        - ✅ Rápido de entrenar
-        - ✅ Requiere pocos datos
-        - ✅ Buenos resultados con relaciones lineales
-
-        **Limitaciones:**
-        - ⚠️ Asume linealidad
-        - ⚠️ Sensible a outliers
-        - ⚠️ No captura relaciones complejas
-        """)
+        <div style='background-color: #e3f2fd; padding: 1.5rem; border-radius: 10px; text-align: center;'>
+            <h3 style='margin-top: 0;'>🧠 Algoritmo</h3>
+            <h4 style='color: #1976d2;'>Regresión Lineal</h4>
+            <p style='font-size: 0.9rem;'>
+                Predice valores futuros basándose en patrones temporales y espaciales
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col2:
         st.markdown("""
-        ### 📈 Métricas de Evaluación
+        <div style='background-color: #f3e5f5; padding: 1.5rem; border-radius: 10px; text-align: center;'>
+            <h3 style='margin-top: 0;'>📊 Variables</h3>
+            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>Entrada:</b> Días, Hora, Tanque</p>
+            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>Salida:</b> Temperatura o pH</p>
+            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>División:</b> 80% train, 20% test</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        **R² (Coeficiente de Determinación):**
-        - Mide qué porcentaje de variabilidad es explicada
-        - Rango: [0, 1], donde 1 es perfecto
-        - Fórmula: R² = 1 - (SS_res / SS_tot)
+    with col3:
+        st.markdown("""
+        <div style='background-color: #fff3e0; padding: 1.5rem; border-radius: 10px; text-align: center;'>
+            <h3 style='margin-top: 0;'>📈 Evaluación</h3>
+            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>R²:</b> % variabilidad explicada</p>
+            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>RMSE:</b> Error promedio</p>
+            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>MAE:</b> Error absoluto</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        **MSE (Error Cuadrático Medio):**
-        - Promedio de errores al cuadrado
-        - Penaliza errores grandes
-        - Fórmula: MSE = (1/n)Σ(y_i - ŷ_i)²
+    # Detalles técnicos en expander (colapsable)
+    with st.expander("📚 Ver Detalles Técnicos"):
+        col_a, col_b = st.columns(2)
 
-        **RMSE (Raíz del MSE):**
-        - MSE en las unidades originales
-        - Más interpretable que MSE
-        - Fórmula: RMSE = √MSE
+        with col_a:
+            st.markdown("""
+            **Ecuación del Modelo:**
+            ```
+            y = β₀ + β₁(Días) + β₂(Hora) + β₃(Tanque) + ε
+            ```
 
-        **MAE (Error Absoluto Medio):**
-        - Promedio de errores absolutos
-        - Menos sensible a outliers
-        - Fórmula: MAE = (1/n)Σ|y_i - ŷ_i|
+            **Ventajas:**
+            - ✅ Interpretable y explicable
+            - ✅ Rápido de entrenar
+            - ✅ Requiere pocos datos
+            """)
 
-        **Interpretación de R²:**
-        - R² > 0.9: Excelente
-        - R² > 0.7: Bueno
-        - R² > 0.5: Moderado
-        - R² < 0.5: Requiere mejora
-        """)
+        with col_b:
+            st.markdown("""
+            **Métricas:**
+            - **R²:** Mide ajuste del modelo (0-1)
+            - **RMSE:** Error en unidades originales
+            - **MAE:** Error absoluto promedio
+
+            **Interpretación R²:**
+            - > 0.9: Excelente | > 0.7: Bueno | > 0.5: Moderado
+            """)
 
     st.markdown("---")
 
