@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from scipy.stats import pearsonr
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -189,30 +190,49 @@ def entrenar_modelo_regresion(df, variable_objetivo):
 
     return modelo, metricas, X_test, y_test, y_pred_test, X_train, y_train, y_pred_train
 
-def crear_gauge_chart(valor, titulo, rango_optimo, rango_advertencia, rango_critico):
+def crear_gauge_chart(valor, titulo, rango_min, rango_max, rango_optimo_min, rango_optimo_max):
     """Crear gráfico de gauge (velocímetro) para métricas"""
+
+    # Determinar color de la barra según el valor
+    if rango_optimo_min <= valor <= rango_optimo_max:
+        color_barra = "#28a745"  # Verde
+    elif (rango_min <= valor < rango_optimo_min) or (rango_optimo_max < valor <= rango_max):
+        color_barra = "#ffc107"  # Amarillo
+    else:
+        color_barra = "#dc3545"  # Rojo
+
     fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
+        mode="gauge+number",
         value=valor,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': titulo, 'font': {'size': 20}},
+        title={'text': titulo, 'font': {'size': 18, 'color': 'white'}},
+        number={'font': {'size': 40, 'color': 'white'}},
         gauge={
-            'axis': {'range': [rango_critico[0], rango_critico[1]], 'tickwidth': 1},
-            'bar': {'color': "darkblue"},
+            'axis': {
+                'range': [rango_min, rango_max],
+                'tickwidth': 1,
+                'tickcolor': "white",
+                'tickfont': {'color': 'white', 'size': 12}
+            },
+            'bar': {'color': color_barra, 'thickness': 0.75},
+            'bgcolor': "#1e1e1e",
+            'borderwidth': 2,
+            'bordercolor': "white",
             'steps': [
-                {'range': rango_optimo, 'color': "#90EE90"},
-                {'range': rango_advertencia, 'color': "#FFD700"},
-                {'range': rango_critico, 'color': "#FF6B6B"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': valor
-            }
+                {'range': [rango_min, rango_optimo_min], 'color': 'rgba(220, 53, 69, 0.3)'},
+                {'range': [rango_optimo_min, rango_optimo_max], 'color': 'rgba(40, 167, 69, 0.3)'},
+                {'range': [rango_optimo_max, rango_max], 'color': 'rgba(220, 53, 69, 0.3)'}
+            ]
         }
     ))
 
-    fig.update_layout(height=300)
+    fig.update_layout(
+        height=280,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font={'color': 'white'},
+        margin=dict(l=20, r=20, t=50, b=20)
+    )
     return fig
 
 # ========================================
@@ -595,10 +615,11 @@ with tab2:
         # Gauge de temperatura
         fig_gauge_temp = crear_gauge_chart(
             valor=temp_actual,
-            titulo="Temperatura Actual (°C)",
-            rango_optimo=[20, 33],
-            rango_advertencia=[14, 20],
-            rango_critico=[0, 45]
+            titulo="🌡️ Temperatura Actual (°C)",
+            rango_min=0,
+            rango_max=45,
+            rango_optimo_min=20,
+            rango_optimo_max=33
         )
         st.plotly_chart(fig_gauge_temp, use_container_width=True)
 
@@ -606,10 +627,11 @@ with tab2:
         # Gauge de pH
         fig_gauge_ph = crear_gauge_chart(
             valor=ph_actual,
-            titulo="pH Actual",
-            rango_optimo=[6.5, 9.0],
-            rango_advertencia=[6.0, 6.5],
-            rango_critico=[0, 14]
+            titulo="⚗️ pH Actual",
+            rango_min=4,
+            rango_max=10,
+            rango_optimo_min=6.5,
+            rango_optimo_max=9.0
         )
         st.plotly_chart(fig_gauge_ph, use_container_width=True)
 
@@ -1038,38 +1060,357 @@ with tab3:
 with tab4:
     st.header("🤖 Inteligencia Artificial Predictiva")
 
+    # Información general de los datos
+    st.subheader("📊 Resumen General del Dataset")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "📁 Total de Registros",
+            f"{len(df):,}",
+            help="Número total de mediciones en el dataset"
+        )
+
+    with col2:
+        st.metric(
+            "🌡️ Temperatura Promedio",
+            f"{df['Temperatura_C'].mean():.2f} °C",
+            delta=f"σ = {df['Temperatura_C'].std():.2f}",
+            help="Temperatura promedio con desviación estándar"
+        )
+
+    with col3:
+        st.metric(
+            "⚗️ pH Promedio",
+            f"{df['pH'].mean():.2f}",
+            delta=f"σ = {df['pH'].std():.2f}",
+            help="pH promedio con desviación estándar"
+        )
+
+    with col4:
+        porcentaje_optimo = (len(df[df['Estado_General'] == 'Óptimo']) / len(df) * 100)
+        st.metric(
+            "✅ Condiciones Óptimas",
+            f"{porcentaje_optimo:.1f}%",
+            help="Porcentaje de registros en estado óptimo"
+        )
+
+    st.markdown("---")
+
+    # Info adicional
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("""
+        <div style='background-color: #e3f2fd; padding: 1.5rem; border-radius: 10px;'>
+            <h4 style='margin-top: 0;'>🎯 Datos del Estudio</h4>
+            <ul>
+                <li><b>Tanques monitoreados:</b> 10</li>
+                <li><b>Período de monitoreo:</b> 315 días</li>
+                <li><b>Mediciones diarias:</b> 2 (AM y PM)</li>
+                <li><b>Rango de temperatura:</b> {:.2f}°C - {:.2f}°C</li>
+                <li><b>Rango de pH:</b> {:.2f} - {:.2f}</li>
+            </ul>
+        </div>
+        """.format(
+            df['Temperatura_C'].min(),
+            df['Temperatura_C'].max(),
+            df['pH'].min(),
+            df['pH'].max()
+        ), unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div style='background-color: #f3e5f5; padding: 1.5rem; border-radius: 10px;'>
+            <h4 style='margin-top: 0;'>🤖 Modelo de IA</h4>
+            <ul>
+                <li><b>Algoritmo:</b> Regresión Lineal</li>
+                <li><b>Librería:</b> Scikit-learn</li>
+                <li><b>Tipo:</b> Aprendizaje Supervisado</li>
+                <li><b>División:</b> 80% entrenamiento, 20% prueba</li>
+                <li><b>Variables:</b> Días, Hora, Tanque</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ========================================
+    # ANÁLISIS DE CORRELACIÓN TEMPERATURA-pH
+    # ========================================
+    st.subheader("🔬 Análisis de Correlación: Temperatura vs pH")
+
     st.markdown("""
-    <div style='background-color: #e3f2fd; padding: 1.5rem; border-radius: 10px; border-left: 5px solid #1976d2;'>
-        <h3 style='margin-top: 0;'>📚 Técnica de Machine Learning Implementada</h3>
-        <p><b>Algoritmo:</b> Regresión Lineal (Linear Regression)</p>
-        <p><b>Librería:</b> Scikit-learn</p>
-        <p><b>Tipo:</b> Aprendizaje Supervisado - Regresión</p>
-
-        <h4>🎯 Variables Predictoras (Features):</h4>
-        <ul>
-            <li><b>Días transcurridos:</b> Tiempo desde el inicio del monitoreo (captura tendencias temporales)</li>
-            <li><b>Hora del día:</b> Momento de la medición en formato decimal (captura ciclos diurnos)</li>
-            <li><b>Número de tanque:</b> Identificador del tanque (captura diferencias entre tanques)</li>
-        </ul>
-
-        <h4>🎲 Variable Objetivo (Target):</h4>
-        <p>Temperatura (°C) o pH según selección del usuario</p>
-
-        <h4>📊 División de Datos:</h4>
-        <ul>
-            <li><b>Entrenamiento:</b> 80% del dataset</li>
-            <li><b>Prueba:</b> 20% del dataset</li>
-        </ul>
-
-        <h4>📈 Métricas de Evaluación:</h4>
-        <ul>
-            <li><b>R² (Coeficiente de Determinación):</b> Mide qué porcentaje de la variabilidad es explicada por el modelo</li>
-            <li><b>MSE (Mean Squared Error):</b> Error cuadrático medio</li>
-            <li><b>RMSE (Root Mean Squared Error):</b> Raíz del error cuadrático medio</li>
-            <li><b>MAE (Mean Absolute Error):</b> Error absoluto medio</li>
-        </ul>
+    <div style='background-color: #fff3cd; padding: 1rem; border-radius: 10px; border-left: 5px solid #ffc107;'>
+        <h4 style='margin-top: 0; color: #856404;'>⚡ ¿Por qué es importante esta correlación?</h4>
+        <p style='color: #856404;'>
+            La relación entre temperatura y pH es <b>crítica</b> para la supervivencia y crecimiento de la tilapia.
+            Entender esta correlación permite <b>predecir cambios</b> en un parámetro cuando varía el otro,
+            y determinar los <b>momentos óptimos</b> para mediciones y ajustes en el sistema acuícola.
+        </p>
     </div>
     """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Calcular correlación
+    correlacion_temp_ph, p_valor = pearsonr(df['Temperatura_C'], df['pH'])
+
+    # Análisis por jornada
+    df_am = df[df['Jornada'] == 'am']
+    df_pm = df[df['Jornada'] == 'pm']
+
+    temp_am_mean = df_am['Temperatura_C'].mean()
+    temp_pm_mean = df_pm['Temperatura_C'].mean()
+    ph_am_mean = df_am['pH'].mean()
+    ph_pm_mean = df_pm['pH'].mean()
+
+    # Contar registros óptimos por jornada
+    optimos_am = len(df_am[df_am['Estado_General'] == 'Óptimo'])
+    optimos_pm = len(df_pm[df_pm['Estado_General'] == 'Óptimo'])
+    porcentaje_optimo_am = (optimos_am / len(df_am) * 100) if len(df_am) > 0 else 0
+    porcentaje_optimo_pm = (optimos_pm / len(df_pm) * 100) if len(df_pm) > 0 else 0
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        # Gráfico de dispersión con línea de tendencia
+        fig_scatter_corr = go.Figure()
+
+        # Puntos de datos
+        fig_scatter_corr.add_trace(go.Scatter(
+            x=df['Temperatura_C'],
+            y=df['pH'],
+            mode='markers',
+            name='Mediciones',
+            marker=dict(
+                size=6,
+                color=df['Temperatura_C'],
+                colorscale='Viridis',
+                showscale=True,
+                colorbar=dict(title="Temp (°C)"),
+                opacity=0.6,
+                line=dict(width=0.5, color='white')
+            ),
+            text=[f"Temp: {t:.1f}°C<br>pH: {p:.2f}<br>{tanque}"
+                  for t, p, tanque in zip(df['Temperatura_C'], df['pH'], df['Tanque'])],
+            hovertemplate='%{text}<extra></extra>'
+        ))
+
+        # Línea de tendencia
+        z = np.polyfit(df['Temperatura_C'], df['pH'], 1)
+        p = np.poly1d(z)
+        temp_range = np.linspace(df['Temperatura_C'].min(), df['Temperatura_C'].max(), 100)
+
+        fig_scatter_corr.add_trace(go.Scatter(
+            x=temp_range,
+            y=p(temp_range),
+            mode='lines',
+            name='Línea de Tendencia',
+            line=dict(color='red', width=3, dash='dash')
+        ))
+
+        fig_scatter_corr.update_layout(
+            title=f'Correlación Temperatura-pH (r = {correlacion_temp_ph:.4f})',
+            xaxis_title='Temperatura (°C)',
+            yaxis_title='pH',
+            height=500,
+            hovermode='closest',
+            showlegend=True,
+            legend=dict(x=0.02, y=0.98)
+        )
+
+        st.plotly_chart(fig_scatter_corr, use_container_width=True)
+
+    with col2:
+        # Métricas de correlación
+        st.markdown("### 📊 Coeficiente de Correlación")
+
+        # Interpretar correlación
+        if abs(correlacion_temp_ph) >= 0.7:
+            fuerza = "Fuerte"
+            color = "#28a745"
+        elif abs(correlacion_temp_ph) >= 0.4:
+            fuerza = "Moderada"
+            color = "#ffc107"
+        else:
+            fuerza = "Débil"
+            color = "#dc3545"
+
+        direccion = "Positiva" if correlacion_temp_ph > 0 else "Negativa"
+
+        st.markdown(f"""
+        <div style='background-color: {color}20; padding: 1.5rem; border-radius: 10px; border: 2px solid {color};'>
+            <h2 style='text-align: center; color: {color}; margin: 0;'>{correlacion_temp_ph:.4f}</h2>
+            <p style='text-align: center; margin: 0.5rem 0 0 0;'>
+                Correlación <b>{fuerza}</b><br>
+                <small>{direccion}</small>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Interpretación
+        st.markdown("### 🎯 Interpretación")
+
+        if correlacion_temp_ph > 0:
+            interpretacion = f"""
+            **Correlación Positiva:** Cuando la temperatura aumenta,
+            el pH tiende a {'aumentar también' if correlacion_temp_ph > 0.3 else 'aumentar ligeramente'}.
+            """
+        else:
+            interpretacion = f"""
+            **Correlación Negativa:** Cuando la temperatura aumenta,
+            el pH tiende a {'disminuir' if abs(correlacion_temp_ph) > 0.3 else 'disminuir ligeramente'}.
+            """
+
+        st.info(interpretacion)
+
+        st.markdown(f"""
+        **P-valor:** {p_valor:.6f}
+
+        {'✅ Significativo estadísticamente' if p_valor < 0.05 else '⚠️ No significativo estadísticamente'}
+        """)
+
+    st.markdown("---")
+
+    # Análisis de mejores condiciones
+    st.subheader("⏰ Análisis de Condiciones Óptimas por Jornada")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        <div style='background-color: #e3f2fd; padding: 1.5rem; border-radius: 10px; text-align: center;'>
+            <h3 style='margin-top: 0;'>🌅 JORNADA AM</h3>
+            <h2 style='color: #1976d2; margin: 0.5rem 0;'>{:.1f}%</h2>
+            <p style='margin: 0;'>Condiciones Óptimas</p>
+            <hr>
+            <p><b>Temp promedio:</b> {:.2f}°C</p>
+            <p><b>pH promedio:</b> {:.2f}</p>
+            <p><small>{:,} registros óptimos de {:,}</small></p>
+        </div>
+        """.format(
+            porcentaje_optimo_am,
+            temp_am_mean,
+            ph_am_mean,
+            optimos_am,
+            len(df_am)
+        ), unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div style='background-color: #fff3e0; padding: 1.5rem; border-radius: 10px; text-align: center;'>
+            <h3 style='margin-top: 0;'>🌇 JORNADA PM</h3>
+            <h2 style='color: #f57c00; margin: 0.5rem 0;'>{:.1f}%</h2>
+            <p style='margin: 0;'>Condiciones Óptimas</p>
+            <hr>
+            <p><b>Temp promedio:</b> {:.2f}°C</p>
+            <p><b>pH promedio:</b> {:.2f}</p>
+            <p><small>{:,} registros óptimos de {:,}</small></p>
+        </div>
+        """.format(
+            porcentaje_optimo_pm,
+            temp_pm_mean,
+            ph_pm_mean,
+            optimos_pm,
+            len(df_pm)
+        ), unsafe_allow_html=True)
+
+    with col3:
+        # Determinar mejor jornada
+        if porcentaje_optimo_am > porcentaje_optimo_pm:
+            mejor_jornada = "AM (Mañana)"
+            icono = "🌅"
+            color_mejor = "#1976d2"
+            diferencia = porcentaje_optimo_am - porcentaje_optimo_pm
+        else:
+            mejor_jornada = "PM (Tarde)"
+            icono = "🌇"
+            color_mejor = "#f57c00"
+            diferencia = porcentaje_optimo_pm - porcentaje_optimo_am
+
+        st.markdown(f"""
+        <div style='background-color: #e8f5e9; padding: 1.5rem; border-radius: 10px; text-align: center; border: 3px solid #28a745;'>
+            <h3 style='margin-top: 0;'>🏆 MEJOR MOMENTO</h3>
+            <h2 style='color: {color_mejor}; margin: 0.5rem 0;'>{icono} {mejor_jornada}</h2>
+            <p style='margin: 0;'><b>+{diferencia:.1f}%</b> más óptimo</p>
+            <hr>
+            <p style='font-size: 0.9rem; margin: 0.5rem 0;'>
+                <b>Recomendación:</b><br>
+                Priorizar mediciones y ajustes en jornada {mejor_jornada.split()[0]}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Insights y recomendaciones
+    st.subheader("💡 Insights y Recomendaciones Basadas en Correlación")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("""
+        <div style='background-color: #e8f5e9; padding: 1.5rem; border-radius: 10px; border-left: 5px solid #28a745;'>
+            <h4 style='margin-top: 0; color: #28a745;'>✅ Hallazgos Clave</h4>
+            <ul style='margin-bottom: 0;'>
+        """, unsafe_allow_html=True)
+
+        # Hallazgos dinámicos
+        if abs(correlacion_temp_ph) > 0.5:
+            st.markdown(f"""
+                <li>Existe una correlación <b>{fuerza.lower()}</b> entre temperatura y pH ({correlacion_temp_ph:.3f})</li>
+                <li>Los cambios en temperatura pueden <b>predecir</b> cambios en pH</li>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+                <li>La correlación es <b>{fuerza.lower()}</b> ({correlacion_temp_ph:.3f}), indicando factores adicionales</li>
+                <li>Temperatura y pH varían de forma <b>relativamente independiente</b></li>
+            """, unsafe_allow_html=True)
+
+        st.markdown(f"""
+                <li>La jornada {mejor_jornada.split()[0]} presenta <b>{diferencia:.1f}%</b> más condiciones óptimas</li>
+                <li>Temperatura promedio: <b>{df['Temperatura_C'].mean():.2f}°C</b>, pH promedio: <b>{df['pH'].mean():.2f}</b></li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div style='background-color: #e3f2fd; padding: 1.5rem; border-radius: 10px; border-left: 5px solid #1976d2;'>
+            <h4 style='margin-top: 0; color: #1976d2;'>🎯 Recomendaciones</h4>
+            <ul style='margin-bottom: 0;'>
+        """, unsafe_allow_html=True)
+
+        if porcentaje_optimo_am > porcentaje_optimo_pm:
+            st.markdown(f"""
+                <li><b>Priorizar monitoreo en horas AM</b> cuando las condiciones son más estables</li>
+                <li>Temperatura AM promedio ({temp_am_mean:.1f}°C) es más favorable</li>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+                <li><b>Priorizar monitoreo en horas PM</b> cuando las condiciones son más favorables</li>
+                <li>Temperatura PM promedio ({temp_pm_mean:.1f}°C) es más favorable</li>
+            """, unsafe_allow_html=True)
+
+        if abs(correlacion_temp_ph) > 0.5:
+            st.markdown("""
+                <li><b>Usar temperatura como predictor</b> para anticipar cambios en pH</li>
+                <li>Implementar <b>controles preventivos</b> basados en tendencias térmicas</li>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <li><b>Monitorear ambos parámetros</b> de forma independiente</li>
+                <li>Considerar <b>factores adicionales</b> que afectan el pH</li>
+            """, unsafe_allow_html=True)
+
+        st.markdown("""
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -1423,14 +1764,19 @@ with tab5:
             x=promedios_temp.index,
             y=promedios_temp.values,
             marker_color='skyblue',
-            text=promedios_temp.values.round(2),
-            textposition='outside'
+            text=[f'{val:.2f}' for val in promedios_temp.values],
+            textposition='outside',
+            textfont=dict(size=11)
         ))
         fig_bar_temp.update_layout(
             title='Temperatura Promedio por Tanque',
             xaxis_title='Tanque',
             yaxis_title='Temperatura (°C)',
-            height=400
+            height=450,
+            margin=dict(t=80, b=60, l=60, r=40),
+            yaxis=dict(
+                range=[0, max(promedios_temp.values) * 1.15]  # Añade 15% de espacio arriba
+            )
         )
         st.plotly_chart(fig_bar_temp, use_container_width=True)
 
@@ -1440,14 +1786,19 @@ with tab5:
             x=promedios_ph.index,
             y=promedios_ph.values,
             marker_color='lightcoral',
-            text=promedios_ph.values.round(2),
-            textposition='outside'
+            text=[f'{val:.2f}' for val in promedios_ph.values],
+            textposition='outside',
+            textfont=dict(size=11)
         ))
         fig_bar_ph.update_layout(
             title='pH Promedio por Tanque',
             xaxis_title='Tanque',
             yaxis_title='pH',
-            height=400
+            height=450,
+            margin=dict(t=80, b=60, l=60, r=40),
+            yaxis=dict(
+                range=[0, max(promedios_ph.values) * 1.15]  # Añade 15% de espacio arriba
+            )
         )
         st.plotly_chart(fig_bar_ph, use_container_width=True)
 
