@@ -297,15 +297,75 @@ with st.sidebar:
 # CONTENIDO PRINCIPAL
 # ========================================
 
-# Cargar datos
+# Verificar si hay archivo cargado
 if archivo_cargado is None:
-    try:
-        df = cargar_datos('datos_tanques_tilapia.csv')
-    except FileNotFoundError:
-        st.error("❌ No se encontró el archivo datos_tanques_tilapia.csv")
-        st.stop()
-else:
-    df = cargar_datos(archivo_cargado)
+    # Mostrar pantalla de bienvenida sin datos
+    st.markdown("<h1 class='main-header'>🐟 Sistema Inteligente de Monitoreo y Predicción</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='sub-header'>Optimización de Parámetros de Calidad de Agua en Cultivo de Tilapia mediante Machine Learning</p>", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class='thesis-info'>
+        <h2 style='color: white; margin-top: 0;'>📖 PROYECTO DE TESIS</h2>
+        <h3 style='color: white;'>Predicción de Parámetros Fisicoquímicos del Agua para Optimizar
+        la Producción de Tilapia (Oreochromis niloticus) mediante Algoritmos de Inteligencia Artificial</h3>
+        <p style='font-size: 1.1rem;'>
+            <b>Área:</b> Acuicultura de Precisión | Inteligencia Artificial Aplicada<br>
+            <b>Enfoque:</b> Machine Learning para Predicción de Series Temporales
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Instrucciones para cargar archivo
+    st.markdown("""
+    <div style='background-color: #fff3cd; padding: 2rem; border-radius: 15px; border-left: 5px solid #ffc107; text-align: center;'>
+        <h2 style='color: #856404;'>📂 Por favor, carga un archivo CSV para comenzar</h2>
+        <p style='font-size: 1.2rem; color: #856404;'>
+            Utiliza el panel lateral (izquierda) para cargar tu archivo CSV con los datos de monitoreo.
+        </p>
+        <p style='color: #856404;'>
+            El archivo debe contener las columnas: <b>Tanque, Fecha, Hora, Jornada, pH, Temperatura_C</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Información del proyecto
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        <div style='text-align: center; padding: 1.5rem; background-color: #e3f2fd; border-radius: 10px;'>
+            <h2>🤖</h2>
+            <h4>Machine Learning</h4>
+            <p>Predicción mediante IA</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div style='text-align: center; padding: 1.5rem; background-color: #f3e5f5; border-radius: 10px;'>
+            <h2>📊</h2>
+            <h4>Análisis Avanzado</h4>
+            <p>Estadísticas y visualización</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div style='text-align: center; padding: 1.5rem; background-color: #e8f5e9; border-radius: 10px;'>
+            <h2>🎯</h2>
+            <h4>Monitoreo Inteligente</h4>
+            <p>Dashboard en tiempo real</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.stop()  # Detener la ejecución hasta que se cargue un archivo
+
+# Cargar datos del archivo subido por el usuario
+df = cargar_datos(archivo_cargado)
 
 # ========================================
 # TABS DE NAVEGACIÓN
