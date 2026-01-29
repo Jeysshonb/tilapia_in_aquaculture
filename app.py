@@ -1175,50 +1175,116 @@ with tab4:
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # Gráfico de dispersión con línea de tendencia
+        # Gráfico de dispersión con ZONAS DE ESTADO COMBINADO
         fig_scatter_corr = go.Figure()
 
-        # Puntos de datos
-        fig_scatter_corr.add_trace(go.Scatter(
-            x=df['Temperatura_C'],
-            y=df['pH'],
-            mode='markers',
-            name='Mediciones',
-            marker=dict(
-                size=6,
-                color=df['Temperatura_C'],
-                colorscale='Viridis',
-                showscale=True,
-                colorbar=dict(title="Temp (°C)"),
-                opacity=0.6,
-                line=dict(width=0.5, color='white')
-            ),
-            text=[f"Temp: {t:.1f}°C<br>pH: {p:.2f}<br>{tanque}"
-                  for t, p, tanque in zip(df['Temperatura_C'], df['pH'], df['Tanque'])],
-            hovertemplate='%{text}<extra></extra>'
-        ))
+        # ZONA ÓPTIMA - Rectángulo verde (Temp: 20-33°C, pH: 6.5-9.0)
+        fig_scatter_corr.add_shape(
+            type="rect",
+            x0=20, x1=33, y0=6.5, y1=9.0,
+            fillcolor="rgba(40, 167, 69, 0.15)",
+            line=dict(color="green", width=2, dash="dash"),
+            layer="below"
+        )
 
-        # Línea de tendencia
-        z = np.polyfit(df['Temperatura_C'], df['pH'], 1)
-        p = np.poly1d(z)
-        temp_range = np.linspace(df['Temperatura_C'].min(), df['Temperatura_C'].max(), 100)
+        # Clasificar puntos por estado combinado
+        df_temp = df.copy()
+        condiciones = []
+        colores = []
+        simbolos = []
 
-        fig_scatter_corr.add_trace(go.Scatter(
-            x=temp_range,
-            y=p(temp_range),
-            mode='lines',
-            name='Línea de Tendencia',
-            line=dict(color='red', width=3, dash='dash')
-        ))
+        for idx, row in df_temp.iterrows():
+            temp = row['Temperatura_C']
+            ph = row['pH']
+
+            # Determinar estado combinado
+            temp_ok = 20.0 <= temp <= 33.0
+            ph_ok = 6.5 <= ph <= 9.0
+            temp_critico = temp < 8.0 or temp > 42.0
+            ph_critico = ph < 4.0 or ph > 10.0
+
+            if temp_ok and ph_ok:
+                condiciones.append('ÓPTIMO')
+                colores.append('#28a745')  # Verde
+                simbolos.append('circle')
+            elif temp_critico or ph_critico:
+                condiciones.append('CRÍTICO')
+                colores.append('#dc3545')  # Rojo
+                simbolos.append('x')
+            else:
+                condiciones.append('ADVERTENCIA')
+                colores.append('#ffc107')  # Amarillo
+                simbolos.append('diamond')
+
+        df_temp['Condicion'] = condiciones
+        df_temp['Color'] = colores
+        df_temp['Simbolo'] = simbolos
+
+        # Graficar por grupos
+        for condicion in ['ÓPTIMO', 'ADVERTENCIA', 'CRÍTICO']:
+            df_grupo = df_temp[df_temp['Condicion'] == condicion]
+
+            if len(df_grupo) > 0:
+                if condicion == 'ÓPTIMO':
+                    descripcion = 'Reproducción y crecimiento máximo'
+                elif condicion == 'ADVERTENCIA':
+                    descripcion = 'Estrés moderado, reducción de crecimiento'
+                else:
+                    descripcion = 'Alto estrés, riesgo de mortalidad'
+
+                fig_scatter_corr.add_trace(go.Scatter(
+                    x=df_grupo['Temperatura_C'],
+                    y=df_grupo['pH'],
+                    mode='markers',
+                    name=f'{condicion} ({len(df_grupo)})',
+                    marker=dict(
+                        size=8,
+                        color=df_grupo['Color'].iloc[0],
+                        symbol=df_grupo['Simbolo'].iloc[0],
+                        opacity=0.7,
+                        line=dict(width=1, color='white')
+                    ),
+                    text=[f"<b>{condicion}</b><br>Temp: {t:.1f}°C<br>pH: {p:.2f}<br>{tanque}<br><i>{descripcion}</i>"
+                          for t, p, tanque in zip(df_grupo['Temperatura_C'], df_grupo['pH'], df_grupo['Tanque'])],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+
+        # Líneas de referencia de rangos óptimos
+        fig_scatter_corr.add_vline(x=20, line_dash="dot", line_color="green", opacity=0.6, annotation_text="Temp mín óptima")
+        fig_scatter_corr.add_vline(x=33, line_dash="dot", line_color="green", opacity=0.6, annotation_text="Temp máx óptima")
+        fig_scatter_corr.add_hline(y=6.5, line_dash="dot", line_color="green", opacity=0.6, annotation_text="pH mín óptimo")
+        fig_scatter_corr.add_hline(y=9.0, line_dash="dot", line_color="green", opacity=0.6, annotation_text="pH máx óptimo")
+
+        # Anotación en zona óptima
+        fig_scatter_corr.add_annotation(
+            x=26.5, y=7.75,
+            text="<b>ZONA ÓPTIMA</b><br>📈 Mejor crecimiento<br>🐟 Mejor reproducción<br>💪 Menor mortalidad",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowcolor="green",
+            ax=-60,
+            ay=-60,
+            font=dict(size=10, color="white", family="Arial Black"),
+            bgcolor="rgba(40, 167, 69, 0.9)",
+            bordercolor="green",
+            borderwidth=2,
+            borderpad=6
+        )
 
         fig_scatter_corr.update_layout(
-            title=f'Correlación Temperatura-pH (r = {correlacion_temp_ph:.4f})',
+            title=f'Zonas de Estado Combinado: Temperatura vs pH (r = {correlacion_temp_ph:.4f})',
             xaxis_title='Temperatura (°C)',
             yaxis_title='pH',
-            height=500,
+            height=550,
             hovermode='closest',
             showlegend=True,
-            legend=dict(x=0.02, y=0.98)
+            legend=dict(
+                x=0.02, y=0.98,
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor='black',
+                borderwidth=1
+            )
         )
 
         st.plotly_chart(fig_scatter_corr, use_container_width=True)
@@ -1252,27 +1318,45 @@ with tab4:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Interpretación
-        st.markdown("### 🎯 Interpretación")
+        # Interpretación MEJORADA
+        st.markdown("### 🎯 ¿Qué Significa?")
 
-        if correlacion_temp_ph > 0:
-            interpretacion = f"""
-            **Correlación Positiva:** Cuando la temperatura aumenta,
-            el pH tiende a {'aumentar también' if correlacion_temp_ph > 0.3 else 'aumentar ligeramente'}.
-            """
+        if abs(correlacion_temp_ph) < 0.3:
+            st.markdown("""
+            <div style='background-color: #e8f5e9; padding: 1rem; border-radius: 8px; border-left: 4px solid #28a745;'>
+                <h4 style='color: #28a745; margin-top: 0;'>✅ Correlación Débil = Monitoreo Independiente</h4>
+                <p><b>Esto es BUENO porque:</b></p>
+                <ul>
+                    <li>Temperatura y pH <b>varían independientemente</b></li>
+                    <li>Debes <b>monitorear AMBOS</b> parámetros por separado</li>
+                    <li>No puedes predecir pH solo con temperatura (o viceversa)</li>
+                    <li>Cada parámetro responde a <b>factores diferentes</b></li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            interpretacion = f"""
-            **Correlación Negativa:** Cuando la temperatura aumenta,
-            el pH tiende a {'disminuir' if abs(correlacion_temp_ph) > 0.3 else 'disminuir ligeramente'}.
-            """
+            if correlacion_temp_ph > 0:
+                interpretacion = "**Correlación Positiva:** Cuando la temperatura aumenta, el pH tiende a aumentar."
+            else:
+                interpretacion = "**Correlación Negativa:** Cuando la temperatura aumenta, el pH tiende a disminuir."
+            st.info(interpretacion)
 
-        st.info(interpretacion)
+        st.markdown("<br>", unsafe_allow_html=True)
 
+        # Estadísticas de zonas
+        total_registros = len(df)
+        optimos = len(df_temp[df_temp['Condicion'] == 'ÓPTIMO'])
+        advertencias = len(df_temp[df_temp['Condicion'] == 'ADVERTENCIA'])
+        criticos = len(df_temp[df_temp['Condicion'] == 'CRÍTICO'])
+
+        st.markdown("### 📊 Distribución de Estados")
         st.markdown(f"""
-        **P-valor:** {p_valor:.6f}
-
-        {'✅ Significativo estadísticamente' if p_valor < 0.05 else '⚠️ No significativo estadísticamente'}
-        """)
+        <div style='background-color: #f8f9fa; padding: 1rem; border-radius: 8px;'>
+            <p style='margin: 0.3rem 0;'>🟢 <b>ÓPTIMO:</b> {optimos:,} ({optimos/total_registros*100:.1f}%)</p>
+            <p style='margin: 0.3rem 0;'>🟡 <b>ADVERTENCIA:</b> {advertencias:,} ({advertencias/total_registros*100:.1f}%)</p>
+            <p style='margin: 0.3rem 0;'>🔴 <b>CRÍTICO:</b> {criticos:,} ({criticos/total_registros*100:.1f}%)</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -1409,6 +1493,79 @@ with tab4:
 
         st.markdown("""
             </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # NUEVA SECCIÓN: Impacto Biológico de las Zonas
+    st.subheader("🐟 Impacto Biológico de las Zonas de Temperatura-pH")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        <div style='background-color: #e8f5e9; padding: 1.5rem; border-radius: 10px; border: 3px solid #28a745;'>
+            <h4 style='margin-top: 0; color: #28a745; text-align: center;'>🟢 ZONA ÓPTIMA</h4>
+            <p style='text-align: center; font-size: 0.9rem;'><b>Temp: 20-33°C | pH: 6.5-9.0</b></p>
+            <hr>
+            <h5 style='color: #28a745;'>✅ Beneficios:</h5>
+            <ul style='font-size: 0.9rem;'>
+                <li><b>Crecimiento máximo:</b> 2-3% peso/día</li>
+                <li><b>Reproducción óptima:</b> 3-5 desoves/año</li>
+                <li><b>Mortalidad mínima:</b> < 5%</li>
+                <li><b>Sistema inmune:</b> Fortalecido</li>
+                <li><b>Conversión alimenticia:</b> 1.2-1.5 kg/kg</li>
+                <li><b>Calidad del producto:</b> Excelente</li>
+            </ul>
+            <h5 style='color: #28a745;'>🎯 Acciones:</h5>
+            <p style='font-size: 0.85rem; margin-bottom: 0;'>
+                Mantener estas condiciones. Monitoreo rutinario. Alimentación normal.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div style='background-color: #fff3e0; padding: 1.5rem; border-radius: 10px; border: 3px solid #ffc107;'>
+            <h4 style='margin-top: 0; color: #f57c00; text-align: center;'>🟡 ZONA ADVERTENCIA</h4>
+            <p style='text-align: center; font-size: 0.9rem;'><b>Fuera de rangos óptimos</b></p>
+            <hr>
+            <h5 style='color: #f57c00;'>⚠️ Efectos:</h5>
+            <ul style='font-size: 0.9rem;'>
+                <li><b>Crecimiento reducido:</b> 30-50%</li>
+                <li><b>Estrés moderado:</b> Cortisol elevado</li>
+                <li><b>Menor apetito:</b> Reducción en consumo</li>
+                <li><b>Reproducción afectada:</b> Menor fertilidad</li>
+                <li><b>Mortalidad:</b> 5-15%</li>
+                <li><b>Mayor susceptibilidad:</b> A enfermedades</li>
+            </ul>
+            <h5 style='color: #f57c00;'>🎯 Acciones:</h5>
+            <p style='font-size: 0.85rem; margin-bottom: 0;'>
+                <b>Ajustar condiciones inmediatamente.</b> Reducir alimentación. Monitoreo frecuente.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div style='background-color: #f8d7da; padding: 1.5rem; border-radius: 10px; border: 3px solid #dc3545;'>
+            <h4 style='margin-top: 0; color: #dc3545; text-align: center;'>🔴 ZONA CRÍTICA</h4>
+            <p style='text-align: center; font-size: 0.9rem;'><b>Temp: <8 o >42°C | pH: <4 o >10</b></p>
+            <hr>
+            <h5 style='color: #dc3545;'>🚨 Peligros:</h5>
+            <ul style='font-size: 0.9rem;'>
+                <li><b>Alto estrés agudo:</b> Shock térmico/químico</li>
+                <li><b>Mortalidad masiva:</b> > 50%</li>
+                <li><b>Daño tisular:</b> Branquias y piel</li>
+                <li><b>Cese reproductivo:</b> Total</li>
+                <li><b>Inanición:</b> No comen</li>
+                <li><b>Colapso del sistema:</b> Inmunológico</li>
+            </ul>
+            <h5 style='color: #dc3545;'>🎯 Acciones:</h5>
+            <p style='font-size: 0.85rem; margin-bottom: 0;'>
+                <b>EMERGENCIA.</b> Ajuste inmediato. Detener alimentación. Considerar traslado de peces.
+            </p>
         </div>
         """, unsafe_allow_html=True)
 
