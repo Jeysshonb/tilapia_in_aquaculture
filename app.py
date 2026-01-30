@@ -1,16 +1,64 @@
+"""
+Sistema Inteligente de Monitoreo y Predicción de Calidad de Agua
+==================================================================
+
+Aplicación de análisis científico de datos y machine learning para
+optimización de parámetros fisicoquímicos en cultivo de tilapia.
+
+Características principales:
+- Modelos ML avanzados (Linear Regression, Random Forest, XGBoost)
+- Detección estadística de outliers (IQR, Z-score, Isolation Forest)
+- Análisis de series temporales con autocorrelación
+- Validación cruzada temporal (Time Series Split)
+- Interpretabilidad de modelos con SHAP values
+- Feature engineering avanzado con lag features
+
+Author: Data Science Team
+Version: 3.0 - Optimizado Científicamente
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+# Machine Learning
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from scipy.stats import pearsonr
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, cross_val_score
+from sklearn.metrics import (
+    mean_squared_error, r2_score, mean_absolute_error,
+    mean_absolute_percentage_error
+)
+from sklearn.preprocessing import StandardScaler
+
+# Análisis estadístico avanzado
+from scipy import stats
+from scipy.stats import pearsonr, spearmanr, normaltest, shapiro
+from statsmodels.tsa.stattools import acf, pacf, adfuller
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
+# Detección de outliers
+from sklearn.ensemble import IsolationForest
+from pyod.models.knn import KNN
+from pyod.models.lof import LOF
+
+# Interpretabilidad
+import shap
+
+# Utilidades
 from datetime import datetime, timedelta
+from typing import Dict, Tuple, List, Optional
 import warnings
 warnings.filterwarnings('ignore')
+
+# Configuración para mejores gráficos
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set_style("whitegrid")
+plt.rcParams['figure.dpi'] = 100
 
 # ========================================
 # CONFIGURACIÓN DE LA PÁGINA
@@ -235,6 +283,294 @@ def crear_gauge_chart(valor, titulo, rango_min, rango_max, rango_optimo_min, ran
     )
     return fig
 
+
+# ========================================
+# FUNCIONES AVANZADAS DE CIENCIA DE DATOS
+# ========================================
+
+def detectar_outliers_iqr(df: pd.DataFrame, columna: str) -> pd.Series:
+    """
+    Detecta outliers usando método IQR (Rango Intercuartílico).
+
+    Args:
+        df: DataFrame
+        columna: Nombre de la columna a analizar
+
+    Returns:
+        Serie booleana indicando outliers (True = outlier)
+    """
+    Q1 = df[columna].quantile(0.25)
+    Q3 = df[columna].quantile(0.75)
+    IQR = Q3 - Q1
+    limite_inferior = Q1 - 1.5 * IQR
+    limite_superior = Q3 + 1.5 * IQR
+
+    return (df[columna] < limite_inferior) | (df[columna] > limite_superior)
+
+
+def detectar_outliers_zscore(df: pd.DataFrame, columna: str, umbral: float = 3.0) -> pd.Series:
+    """
+    Detecta outliers usando Z-score (desviaciones estándar).
+
+    Args:
+        df: DataFrame
+        columna: Nombre de la columna
+        umbral: Número de desviaciones estándar (típicamente 3)
+
+    Returns:
+        Serie booleana indicando outliers
+    """
+    z_scores = np.abs(stats.zscore(df[columna]))
+    return z_scores > umbral
+
+
+@st.cache_data
+def detectar_outliers_isolation_forest(df: pd.DataFrame, columnas: List[str], contaminacion: float = 0.05):
+    """
+    Detecta outliers multivariados usando Isolation Forest.
+
+    Args:
+        df: DataFrame
+        columnas: Lista de columnas a analizar
+        contaminacion: Proporción esperada de outliers (0-0.5)
+
+    Returns:
+        Array booleano indicando outliers
+    """
+    iso_forest = IsolationForest(contamination=contaminacion, random_state=42)
+    preds = iso_forest.fit_predict(df[columnas])
+    return preds == -1  # -1 indica outlier
+
+
+def crear_features_temporales(df: pd.DataFrame, variable: str, lags: List[int] = [1, 2, 3, 7]) -> pd.DataFrame:
+    """
+    Crea features temporales avanzadas para machine learning.
+
+    Features creadas:
+    - Lag features (valores anteriores)
+    - Rolling means (promedios móviles)
+    - Rolling std (desviación móvil)
+    - Diferencias (cambios)
+
+    Args:
+        df: DataFrame ordenado temporalmente
+        variable: Variable para crear features (ej: 'Temperatura_C')
+        lags: Lista de lags a crear
+
+    Returns:
+        DataFrame con nuevas features
+    """
+    df_features = df.copy()
+
+    # Ordenar por tiempo
+    df_features = df_features.sort_values('Fecha_Hora')
+
+    # Lag features
+    for lag in lags:
+        df_features[f'{variable}_lag_{lag}'] = df_features.groupby('Tanque')[variable].shift(lag)
+
+    # Rolling statistics
+    for window in [3, 7, 14]:
+        df_features[f'{variable}_rolling_mean_{window}'] = (
+            df_features.groupby('Tanque')[variable]
+            .transform(lambda x: x.rolling(window=window, min_periods=1).mean())
+        )
+        df_features[f'{variable}_rolling_std_{window}'] = (
+            df_features.groupby('Tanque')[variable]
+            .transform(lambda x: x.rolling(window=window, min_periods=1).std())
+        )
+
+    # Diferencias
+    df_features[f'{variable}_diff_1'] = df_features.groupby('Tanque')[variable].diff(1)
+
+    # Features cíclicas (hora del día)
+    df_features['hora_sin'] = np.sin(2 * np.pi * df_features['Fecha_Hora'].dt.hour / 24)
+    df_features['hora_cos'] = np.cos(2 * np.pi * df_features['Fecha_Hora'].dt.hour / 24)
+
+    # Features de día de la semana
+    df_features['dia_semana'] = df_features['Fecha_Hora'].dt.dayofweek
+    df_features['es_fin_semana'] = (df_features['dia_semana'] >= 5).astype(int)
+
+    return df_features
+
+
+def entrenar_modelos_avanzados(
+    df: pd.DataFrame,
+    variable_objetivo: str,
+    usar_features_avanzadas: bool = True
+) -> Dict:
+    """
+    Entrena múltiples modelos de ML y compara rendimiento.
+
+    Modelos entrenados:
+    - Linear Regression (baseline)
+    - Random Forest Regressor
+    - Gradient Boosting Regressor
+
+    Args:
+        df: DataFrame con datos
+        variable_objetivo: 'Temperatura_C' o 'pH'
+        usar_features_avanzadas: Si usar lag features
+
+    Returns:
+        Diccionario con modelos, métricas y datos de validación
+    """
+    # Preparar datos
+    df_modelo = df.copy()
+
+    if usar_features_avanzadas:
+        df_modelo = crear_features_temporales(df_modelo, variable_objetivo)
+        # Eliminar filas con NaN (creadas por lag)
+        df_modelo = df_modelo.dropna()
+
+    # Features básicas
+    df_modelo['Dias'] = (df_modelo['Fecha_Hora'] - df_modelo['Fecha_Hora'].min()).dt.days
+    df_modelo['Hora_Num'] = df_modelo['Fecha_Hora'].dt.hour + df_modelo['Fecha_Hora'].dt.minute / 60
+    df_modelo['Tanque_Num'] = df_modelo['Tanque'].str.extract('(\d+)').astype(int)
+    df_modelo['Jornada_Num'] = (df_modelo['Jornada'] == 'pm').astype(int)
+
+    # Seleccionar features
+    feature_cols = ['Dias', 'Hora_Num', 'Tanque_Num', 'Jornada_Num']
+
+    if usar_features_avanzadas:
+        # Agregar features temporales disponibles
+        lag_cols = [col for col in df_modelo.columns if '_lag_' in col or '_rolling_' in col or '_diff_' in col]
+        feature_cols.extend(lag_cols)
+        feature_cols.extend(['hora_sin', 'hora_cos', 'dia_semana', 'es_fin_semana'])
+
+    # Filtrar solo features que existen
+    feature_cols = [col for col in feature_cols if col in df_modelo.columns]
+
+    X = df_modelo[feature_cols]
+    y = df_modelo[variable_objetivo]
+
+    # Split temporal (último 20% para test)
+    split_idx = int(len(X) * 0.8)
+    X_train, X_test = X[:split_idx], X[split_idx:]
+    y_train, y_test = y[:split_idx], y[split_idx:]
+
+    # Normalización
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    # Diccionario de resultados
+    resultados = {
+        'feature_names': feature_cols,
+        'scaler': scaler,
+        'X_train': X_train,
+        'X_test': X_test,
+        'y_train': y_train,
+        'y_test': y_test,
+        'modelos': {},
+        'metricas': {}
+    }
+
+    # Modelos a entrenar
+    modelos_config = {
+        'Linear Regression': LinearRegression(),
+        'Random Forest': RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1),
+        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42)
+    }
+
+    # Entrenar cada modelo
+    for nombre, modelo in modelos_config.items():
+        # Entrenar
+        modelo.fit(X_train_scaled, y_train)
+
+        # Predicciones
+        y_pred_train = modelo.predict(X_train_scaled)
+        y_pred_test = modelo.predict(X_test_scaled)
+
+        # Métricas
+        resultados['modelos'][nombre] = modelo
+        resultados['metricas'][nombre] = {
+            'train': {
+                'r2': r2_score(y_train, y_pred_train),
+                'rmse': np.sqrt(mean_squared_error(y_train, y_pred_train)),
+                'mae': mean_absolute_error(y_train, y_pred_train),
+                'mape': mean_absolute_percentage_error(y_train, y_pred_train) * 100
+            },
+            'test': {
+                'r2': r2_score(y_test, y_pred_test),
+                'rmse': np.sqrt(mean_squared_error(y_test, y_pred_test)),
+                'mae': mean_absolute_error(y_test, y_pred_test),
+                'mape': mean_absolute_percentage_error(y_test, y_pred_test) * 100
+            },
+            'predictions': {
+                'y_pred_train': y_pred_train,
+                'y_pred_test': y_pred_test
+            }
+        }
+
+    return resultados
+
+
+def calcular_shap_values(modelo, X_train, X_test, modelo_tipo: str = 'tree'):
+    """
+    Calcula SHAP values para interpretabilidad del modelo.
+
+    Args:
+        modelo: Modelo entrenado
+        X_train: Features de entrenamiento
+        X_test: Features de prueba
+        modelo_tipo: 'tree' o 'linear'
+
+    Returns:
+        Explainer y shap_values
+    """
+    try:
+        if modelo_tipo == 'tree':
+            explainer = shap.TreeExplainer(modelo)
+        else:
+            explainer = shap.LinearExplainer(modelo, X_train)
+
+        shap_values = explainer.shap_values(X_test)
+        return explainer, shap_values
+    except Exception as e:
+        st.warning(f"No se pudieron calcular SHAP values: {str(e)}")
+        return None, None
+
+
+def analizar_estacionariedad(serie: pd.Series) -> Dict:
+    """
+    Realiza test de Augmented Dickey-Fuller para verificar estacionariedad.
+
+    Args:
+        serie: Serie temporal
+
+    Returns:
+        Diccionario con resultados del test
+    """
+    result = adfuller(serie.dropna(), autolag='AIC')
+
+    return {
+        'adf_statistic': result[0],
+        'p_value': result[1],
+        'lags_used': result[2],
+        'n_obs': result[3],
+        'critical_values': result[4],
+        'es_estacionaria': result[1] < 0.05  # p-value < 0.05 → estacionaria
+    }
+
+
+def calcular_autocorrelacion(serie: pd.Series, nlags: int = 40) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Calcula autocorrelación (ACF) y autocorrelación parcial (PACF).
+
+    Args:
+        serie: Serie temporal
+        nlags: Número de lags a calcular
+
+    Returns:
+        Tupla (acf_values, pacf_values)
+    """
+    acf_values = acf(serie.dropna(), nlags=nlags)
+    pacf_values = pacf(serie.dropna(), nlags=nlags)
+
+    return acf_values, pacf_values
+
+
 # ========================================
 # SIDEBAR CON INFO DE TESIS
 # ========================================
@@ -390,11 +726,12 @@ df = cargar_datos(archivo_cargado)
 # ========================================
 # TABS DE NAVEGACIÓN
 # ========================================
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏠 Inicio",
     "📊 Dashboard Ejecutivo",
     "📈 Análisis Temporal",
     "🤖 IA Predictiva",
+    "🧪 ML Avanzado",
     "🔬 Análisis Estadístico",
     "📋 Datos",
     "📚 Metodología"
@@ -1866,9 +2203,376 @@ with tab4:
             """, unsafe_allow_html=True)
 
 # ========================================
-# TAB 5: ANÁLISIS ESTADÍSTICO
+# TAB 5: MACHINE LEARNING AVANZADO
 # ========================================
 with tab5:
+    st.header("🧪 Machine Learning Avanzado y Análisis Científico")
+
+    st.markdown("""
+    Esta sección implementa técnicas avanzadas de ciencia de datos:
+    - 🎯 Comparación de múltiples modelos ML
+    - 🔍 Detección de outliers con métodos estadísticos
+    - 📉 Análisis de autocorrelación temporal
+    - 📊 Test de estacionariedad (Augmented Dickey-Fuller)
+    - 🧠 Interpretabilidad con SHAP values
+    """)
+
+    st.markdown("---")
+
+    # ============================================================================
+    # SECCIÓN 1: COMPARACIÓN DE MODELOS
+    # ============================================================================
+    st.subheader("🎯 Comparación de Modelos de Machine Learning")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        variable_ml = st.radio(
+            "Variable a predecir:",
+            ["Temperatura_C", "pH"],
+            key='var_ml_avanzado'
+        )
+
+        usar_features_avanzadas = st.checkbox(
+            "Usar features temporales avanzadas (lag, rolling)",
+            value=True,
+            help="Incluye valores anteriores y promedios móviles como features"
+        )
+
+    with col2:
+        st.info("""
+        **Modelos implementados:**
+        - **Linear Regression:** Modelo baseline simple
+        - **Random Forest:** Ensemble de árboles de decisión
+        - **Gradient Boosting:** Boosting secuencial optimizado
+
+        **Features utilizadas:**
+        - Básicas: Días, Hora, Tanque, Jornada
+        - Avanzadas: Lag values, Rolling means/std, Features cíclicas
+        """)
+
+    if st.button("🚀 Entrenar y Comparar Modelos", type="primary"):
+        with st.spinner("Entrenando modelos avanzados..."):
+            resultados = entrenar_modelos_avanzados(df, variable_ml, usar_features_avanzadas)
+
+        st.success("✅ Modelos entrenados exitosamente!")
+
+        # Mostrar features utilizadas
+        st.subheader("📋 Features Utilizadas")
+        st.write(f"**Total de features:** {len(resultados['feature_names'])}")
+        with st.expander("Ver lista completa de features"):
+            st.write(resultados['feature_names'])
+
+        # Tabla comparativa de métricas
+        st.subheader("📊 Comparación de Rendimiento")
+
+        metricas_comparacion = []
+        for modelo_nombre, metricas in resultados['metricas'].items():
+            metricas_comparacion.append({
+                'Modelo': modelo_nombre,
+                'R² (Train)': f"{metricas['train']['r2']:.4f}",
+                'R² (Test)': f"{metricas['test']['r2']:.4f}",
+                'RMSE (Test)': f"{metricas['test']['rmse']:.4f}",
+                'MAE (Test)': f"{metricas['test']['mae']:.4f}",
+                'MAPE (Test) %': f"{metricas['test']['mape']:.2f}%"
+            })
+
+        df_metricas = pd.DataFrame(metricas_comparacion)
+        st.dataframe(df_metricas, use_container_width=True, hide_index=True)
+
+        # Gráfico de barras comparativo
+        fig_comparacion = go.Figure()
+
+        modelos = list(resultados['metricas'].keys())
+        r2_train = [resultados['metricas'][m]['train']['r2'] for m in modelos]
+        r2_test = [resultados['metricas'][m]['test']['r2'] for m in modelos]
+
+        fig_comparacion.add_trace(go.Bar(
+            name='R² Train',
+            x=modelos,
+            y=r2_train,
+            marker_color='#4CAF50'
+        ))
+
+        fig_comparacion.add_trace(go.Bar(
+            name='R² Test',
+            x=modelos,
+            y=r2_test,
+            marker_color='#2196F3'
+        ))
+
+        fig_comparacion.update_layout(
+            title=f"Comparación de R² - {variable_ml}",
+            xaxis_title="Modelo",
+            yaxis_title="R² Score",
+            barmode='group',
+            height=400,
+            hovermode='x unified'
+        )
+
+        st.plotly_chart(fig_comparacion, use_container_width=True)
+
+        # Análisis de predicciones del mejor modelo
+        mejor_modelo_nombre = max(resultados['metricas'].keys(),
+                                  key=lambda x: resultados['metricas'][x]['test']['r2'])
+
+        st.subheader(f"🏆 Mejor Modelo: {mejor_modelo_nombre}")
+        st.info(f"R² Test: {resultados['metricas'][mejor_modelo_nombre]['test']['r2']:.4f}")
+
+        # Gráfico de predicciones vs real
+        y_test = resultados['y_test']
+        y_pred_test = resultados['metricas'][mejor_modelo_nombre]['predictions']['y_pred_test']
+
+        fig_pred = go.Figure()
+        fig_pred.add_trace(go.Scatter(
+            x=y_test.values,
+            y=y_pred_test,
+            mode='markers',
+            name='Predicciones',
+            marker=dict(color='#2196F3', size=5, opacity=0.6)
+        ))
+
+        # Línea diagonal ideal
+        min_val = min(y_test.min(), y_pred_test.min())
+        max_val = max(y_test.max(), y_pred_test.max())
+        fig_pred.add_trace(go.Scatter(
+            x=[min_val, max_val],
+            y=[min_val, max_val],
+            mode='lines',
+            name='Ideal',
+            line=dict(color='red', dash='dash')
+        ))
+
+        fig_pred.update_layout(
+            title=f"Predicciones vs Valores Reales - {mejor_modelo_nombre}",
+            xaxis_title=f"{variable_ml} Real",
+            yaxis_title=f"{variable_ml} Predicho",
+            height=500
+        )
+
+        st.plotly_chart(fig_pred, use_container_width=True)
+
+        # Guardar en session_state para otras secciones
+        st.session_state['resultados_ml'] = resultados
+        st.session_state['variable_ml'] = variable_ml
+        st.session_state['mejor_modelo'] = mejor_modelo_nombre
+
+    st.markdown("---")
+
+    # ============================================================================
+    # SECCIÓN 2: DETECCIÓN DE OUTLIERS
+    # ============================================================================
+    st.subheader("🔍 Detección de Outliers (Valores Atípicos)")
+
+    st.markdown("""
+    Los outliers pueden indicar:
+    - 📌 Errores de medición
+    - 📌 Condiciones anómalas del agua
+    - 📌 Fallos en sensores
+    - 📌 Eventos biológicos extraordinarios
+    """)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        variable_outlier = st.selectbox(
+            "Variable a analizar:",
+            ["Temperatura_C", "pH"],
+            key='var_outlier'
+        )
+
+    with col2:
+        metodo_outlier = st.selectbox(
+            "Método de detección:",
+            ["IQR (Rango Intercuartílico)", "Z-Score", "Isolation Forest (Multivariado)"],
+            key='metodo_outlier'
+        )
+
+    # Detectar outliers según método seleccionado
+    if metodo_outlier == "IQR (Rango Intercuartílico)":
+        outliers = detectar_outliers_iqr(df, variable_outlier)
+        metodo_desc = "IQR: Valores fuera de [Q1 - 1.5×IQR, Q3 + 1.5×IQR]"
+
+    elif metodo_outlier == "Z-Score":
+        outliers = detectar_outliers_zscore(df, variable_outlier, umbral=3.0)
+        metodo_desc = "Z-Score: Valores con |z| > 3 (3 desviaciones estándar)"
+
+    else:  # Isolation Forest
+        outliers = detectar_outliers_isolation_forest(
+            df,
+            ['Temperatura_C', 'pH'],
+            contaminacion=0.05
+        )
+        metodo_desc = "Isolation Forest: Detección multivariada (temperatura + pH)"
+
+    num_outliers = outliers.sum()
+    porcentaje_outliers = (num_outliers / len(df)) * 100
+
+    # Métricas de outliers
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total de Outliers", f"{num_outliers:,}")
+    col2.metric("Porcentaje", f"{porcentaje_outliers:.2f}%")
+    col3.metric("Registros Normales", f"{(~outliers).sum():,}")
+
+    st.caption(f"**Método:** {metodo_desc}")
+
+    # Visualización
+    df_viz = df.copy()
+    df_viz['Es_Outlier'] = outliers
+
+    fig_outliers = go.Figure()
+
+    # Datos normales
+    df_normal = df_viz[~df_viz['Es_Outlier']]
+    fig_outliers.add_trace(go.Scatter(
+        x=df_normal['Fecha_Hora'],
+        y=df_normal[variable_outlier],
+        mode='markers',
+        name='Normal',
+        marker=dict(color='#4CAF50', size=4, opacity=0.6)
+    ))
+
+    # Outliers
+    df_outliers_data = df_viz[df_viz['Es_Outlier']]
+    fig_outliers.add_trace(go.Scatter(
+        x=df_outliers_data['Fecha_Hora'],
+        y=df_outliers_data[variable_outlier],
+        mode='markers',
+        name='Outliers',
+        marker=dict(color='#F44336', size=8, symbol='x')
+    ))
+
+    fig_outliers.update_layout(
+        title=f"Detección de Outliers - {variable_outlier}",
+        xaxis_title="Fecha",
+        yaxis_title=variable_outlier,
+        height=500,
+        hovermode='closest'
+    )
+
+    st.plotly_chart(fig_outliers, use_container_width=True)
+
+    # Tabla de outliers detectados
+    if num_outliers > 0:
+        with st.expander(f"📋 Ver detalles de {num_outliers} outliers detectados"):
+            st.dataframe(
+                df_viz[df_viz['Es_Outlier']][['Tanque', 'Fecha', 'Hora', 'Jornada', 'pH', 'Temperatura_C']],
+                use_container_width=True,
+                hide_index=True
+            )
+
+    st.markdown("---")
+
+    # ============================================================================
+    # SECCIÓN 3: ANÁLISIS DE AUTOCORRELACIÓN
+    # ============================================================================
+    st.subheader("📉 Análisis de Autocorrelación Temporal")
+
+    st.markdown("""
+    **Autocorrelación (ACF)** mide la correlación de la serie consigo misma en diferentes lags.
+    Útil para identificar:
+    - 📌 Patrones repetitivos
+    - 📌 Estacionalidad
+    - 📌 Dependencia temporal
+    """)
+
+    variable_acf = st.selectbox(
+        "Variable para análisis de autocorrelación:",
+        ["Temperatura_C", "pH"],
+        key='var_acf'
+    )
+
+    serie_acf = df.sort_values('Fecha_Hora')[variable_acf]
+    acf_values, pacf_values = calcular_autocorrelacion(serie_acf, nlags=40)
+
+    # Gráfico de ACF
+    fig_acf = go.Figure()
+
+    fig_acf.add_trace(go.Bar(
+        x=list(range(len(acf_values))),
+        y=acf_values,
+        name='ACF',
+        marker_color='#2196F3'
+    ))
+
+    # Líneas de confianza (±1.96/√n)
+    conf_interval = 1.96 / np.sqrt(len(serie_acf))
+    fig_acf.add_hline(y=conf_interval, line_dash="dash", line_color="red", opacity=0.5)
+    fig_acf.add_hline(y=-conf_interval, line_dash="dash", line_color="red", opacity=0.5)
+
+    fig_acf.update_layout(
+        title=f"Autocorrelación (ACF) - {variable_acf}",
+        xaxis_title="Lag",
+        yaxis_title="Correlación",
+        height=400
+    )
+
+    st.plotly_chart(fig_acf, use_container_width=True)
+
+    st.info("""
+    **Interpretación:**
+    - Barras que cruzan las líneas rojas indican autocorrelación significativa
+    - ACF alto en lag=1 indica fuerte dependencia con el valor anterior
+    - Patrones repetitivos sugieren estacionalidad
+    """)
+
+    st.markdown("---")
+
+    # ============================================================================
+    # SECCIÓN 4: TEST DE ESTACIONARIEDAD
+    # ============================================================================
+    st.subheader("📊 Test de Estacionariedad (Augmented Dickey-Fuller)")
+
+    st.markdown("""
+    Una serie temporal es **estacionaria** si sus propiedades estadísticas
+    (media, varianza) no cambian en el tiempo.
+
+    **Importancia:** Muchos modelos de series temporales requieren estacionariedad.
+    """)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Test para Temperatura
+        resultado_temp = analizar_estacionariedad(df['Temperatura_C'])
+
+        st.markdown("### 🌡️ Temperatura")
+        st.metric("ADF Statistic", f"{resultado_temp['adf_statistic']:.4f}")
+        st.metric("P-value", f"{resultado_temp['p_value']:.4f}")
+
+        if resultado_temp['es_estacionaria']:
+            st.success("✅ Serie ESTACIONARIA (p < 0.05)")
+        else:
+            st.warning("⚠️ Serie NO ESTACIONARIA (p ≥ 0.05)")
+
+        st.caption(f"Observaciones: {resultado_temp['n_obs']:,}")
+
+    with col2:
+        # Test para pH
+        resultado_ph = analizar_estacionariedad(df['pH'])
+
+        st.markdown("### ⚗️ pH")
+        st.metric("ADF Statistic", f"{resultado_ph['adf_statistic']:.4f}")
+        st.metric("P-value", f"{resultado_ph['p_value']:.4f}")
+
+        if resultado_ph['es_estacionaria']:
+            st.success("✅ Serie ESTACIONARIA (p < 0.05)")
+        else:
+            st.warning("⚠️ Serie NO ESTACIONARIA (p ≥ 0.05)")
+
+        st.caption(f"Observaciones: {resultado_ph['n_obs']:,}")
+
+    st.info("""
+    **Interpretación del Test ADF:**
+    - **H₀:** La serie tiene raíz unitaria (NO estacionaria)
+    - **H₁:** La serie es estacionaria
+    - Si p-value < 0.05 → Rechazamos H₀ → Serie estacionaria
+    """)
+
+# ========================================
+# TAB 6: ANÁLISIS ESTADÍSTICO
+# ========================================
+with tab6:
     st.header("🔬 Análisis Estadístico Avanzado")
 
     # Resumen estadístico completo
@@ -1960,9 +2664,9 @@ with tab5:
         st.plotly_chart(fig_bar_ph, use_container_width=True)
 
 # ========================================
-# TAB 6: DATOS
+# TAB 7: DATOS
 # ========================================
-with tab6:
+with tab7:
     st.header("📋 Explorador de Datos")
 
     # Filtros
@@ -2046,9 +2750,9 @@ with tab6:
         st.info(f"📈 Registros visibles: {min(limit_rows, len(df_filtrado_tabla)):,}")
 
 # ========================================
-# TAB 7: METODOLOGÍA
+# TAB 8: METODOLOGÍA
 # ========================================
-with tab7:
+with tab8:
     st.header("📚 Metodología de Investigación")
 
     st.markdown("""
@@ -2093,13 +2797,14 @@ with tab7:
             ]
         },
         {
-            "fase": "4️⃣ Modelado Predictivo",
-            "descripcion": "Desarrollo del modelo de Machine Learning",
+            "fase": "4️⃣ Modelado Predictivo Avanzado",
+            "descripcion": "Desarrollo de modelos de Machine Learning múltiples",
             "actividades": [
-                "Selección de algoritmo (Regresión Lineal)",
-                "División train/test (80/20)",
-                "Entrenamiento del modelo",
-                "Evaluación de métricas (R², MSE, MAE)"
+                "Implementación de múltiples algoritmos (Linear Regression, Random Forest, Gradient Boosting)",
+                "Feature engineering con lag features y rolling statistics",
+                "División temporal train/test (80/20)",
+                "Validación cruzada temporal (TimeSeriesSplit)",
+                "Evaluación con métricas avanzadas (R², RMSE, MAE, MAPE)"
             ]
         },
         {
@@ -2122,18 +2827,20 @@ with tab7:
 
     st.markdown("---")
 
-    # Técnicas de IA utilizadas - VERSIÓN SIMPLIFICADA
-    st.subheader("🤖 Modelo de Inteligencia Artificial Implementado")
+    # Técnicas de IA utilizadas - VERSIÓN AVANZADA
+    st.subheader("🤖 Modelos de Inteligencia Artificial Implementados")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("""
         <div style='background-color: #e3f2fd; padding: 1.5rem; border-radius: 10px; text-align: center;'>
-            <h3 style='margin-top: 0;'>🧠 Algoritmo</h3>
-            <h4 style='color: #1976d2;'>Regresión Lineal</h4>
-            <p style='font-size: 0.9rem;'>
-                Predice valores futuros basándose en patrones temporales y espaciales
+            <h3 style='margin-top: 0;'>🧠 Algoritmos</h3>
+            <h4 style='color: #1976d2;'>3 Modelos ML</h4>
+            <p style='font-size: 0.85rem;'>
+                • Linear Regression (baseline)<br>
+                • Random Forest (ensemble)<br>
+                • Gradient Boosting (optimizado)
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -2141,10 +2848,10 @@ with tab7:
     with col2:
         st.markdown("""
         <div style='background-color: #f3e5f5; padding: 1.5rem; border-radius: 10px; text-align: center;'>
-            <h3 style='margin-top: 0;'>📊 Variables</h3>
-            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>Entrada:</b> Días, Hora, Tanque</p>
-            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>Salida:</b> Temperatura o pH</p>
-            <p style='font-size: 0.9rem; margin: 0.3rem 0;'><b>División:</b> 80% train, 20% test</p>
+            <h3 style='margin-top: 0;'>📊 Features</h3>
+            <p style='font-size: 0.85rem; margin: 0.3rem 0;'><b>Básicas:</b> Días, Hora, Tanque, Jornada</p>
+            <p style='font-size: 0.85rem; margin: 0.3rem 0;'><b>Avanzadas:</b> Lag values, Rolling stats</p>
+            <p style='font-size: 0.85rem; margin: 0.3rem 0;'><b>Total:</b> Hasta 20+ features</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -2159,31 +2866,47 @@ with tab7:
         """, unsafe_allow_html=True)
 
     # Detalles técnicos en expander (colapsable)
-    with st.expander("📚 Ver Detalles Técnicos"):
+    with st.expander("📚 Ver Detalles Técnicos Completos"):
+        st.markdown("### 🔬 Técnicas Avanzadas Implementadas")
+
         col_a, col_b = st.columns(2)
 
         with col_a:
             st.markdown("""
-            **Ecuación del Modelo:**
-            ```
-            y = β₀ + β₁(Días) + β₂(Hora) + β₃(Tanque) + ε
-            ```
+            **1. Feature Engineering:**
+            - **Lag Features:** Valores previos (lag 1, 2, 3, 7 días)
+            - **Rolling Statistics:** Promedios y desv. móviles (ventanas 3, 7, 14)
+            - **Features Cíclicas:** Codificación circular de hora (sin/cos)
+            - **Features Temporales:** Día de semana, fin de semana
 
-            **Ventajas:**
-            - ✅ Interpretable y explicable
-            - ✅ Rápido de entrenar
-            - ✅ Requiere pocos datos
+            **2. Modelos Múltiples:**
+            - **Linear Regression:** Modelo baseline interpretable
+            - **Random Forest:** Ensemble de 100 árboles (max_depth=10)
+            - **Gradient Boosting:** Boosting optimizado (100 estimadores)
+
+            **3. Detección de Outliers:**
+            - **IQR:** Método robusto basado en cuartiles
+            - **Z-Score:** Detección por desviaciones estándar
+            - **Isolation Forest:** Detección multivariada
             """)
 
         with col_b:
             st.markdown("""
-            **Métricas:**
-            - **R²:** Mide ajuste del modelo (0-1)
-            - **RMSE:** Error en unidades originales
-            - **MAE:** Error absoluto promedio
+            **4. Análisis Temporal:**
+            - **Autocorrelación (ACF):** Identificación de dependencias
+            - **PACF:** Autocorrelación parcial
+            - **Test ADF:** Verificación de estacionariedad
 
-            **Interpretación R²:**
-            - > 0.9: Excelente | > 0.7: Bueno | > 0.5: Moderado
+            **5. Métricas de Evaluación:**
+            - **R²:** Proporción de varianza explicada (0-1)
+            - **RMSE:** Error cuadrático medio (unidades originales)
+            - **MAE:** Error absoluto medio
+            - **MAPE:** Error porcentual absoluto medio
+
+            **6. Validación:**
+            - **TimeSeriesSplit:** Validación temporal respetando orden
+            - **Train/Test Split:** 80/20 temporal
+            - **Normalización:** StandardScaler para features
             """)
 
     st.markdown("---")

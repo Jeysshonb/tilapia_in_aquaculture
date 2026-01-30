@@ -1,5 +1,29 @@
+# Aplicación Web
 streamlit>=1.32.0
+
+# Manipulación y análisis de datos
 pandas>=2.0.0
 numpy>=1.24.0
+
+# Visualización
 plotly>=5.18.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Machine Learning y Modelado
 scikit-learn>=1.3.0
+xgboost>=2.0.0
+lightgbm>=4.1.0
+
+# Análisis estadístico avanzado
+scipy>=1.11.0
+statsmodels>=0.14.0
+
+# Detección de outliers y análisis de anomalías
+pyod>=1.1.0
+
+# Interpretabilidad de modelos
+shap>=0.44.0
+
+# Utilidades
+tqdm>=4.66.0
